@@ -1,7 +1,7 @@
 # ================================================================
 # Promaly Platform — Coolify / self-hosted Docker Compose
 #
-# Builds all Node.js services from source using Dockerfile.coolify.
+# Each Node.js service has its own Dockerfile under docker/Dockerfile.<service>.
 # Rust services (hulylake, hulypulse) build from their own Dockerfiles.
 # Infrastructure services use stable upstream images.
 #
@@ -100,8 +100,7 @@ services:
   stats:
     build:
       context: .
-      dockerfile: Dockerfile.coolify
-      target: stats
+      dockerfile: docker/Dockerfile.stats
     restart: unless-stopped
     environment:
       SERVER_SECRET: ${SERVER_SECRET:-changeme-use-a-long-random-string}
@@ -112,8 +111,7 @@ services:
   account:
     build:
       context: .
-      dockerfile: Dockerfile.coolify
-      target: account
+      dockerfile: docker/Dockerfile.account
     restart: unless-stopped
     depends_on:
       cockroach:
@@ -144,8 +142,7 @@ services:
   transactor:
     build:
       context: .
-      dockerfile: Dockerfile.coolify
-      target: transactor
+      dockerfile: docker/Dockerfile.transactor
     restart: unless-stopped
     depends_on:
       cockroach:
@@ -185,8 +182,7 @@ services:
   workspace:
     build:
       context: .
-      dockerfile: Dockerfile.coolify
-      target: workspace
+      dockerfile: docker/Dockerfile.workspace
     restart: unless-stopped
     depends_on:
       cockroach:
@@ -219,8 +215,7 @@ services:
   collaborator:
     build:
       context: .
-      dockerfile: Dockerfile.coolify
-      target: collaborator
+      dockerfile: docker/Dockerfile.collaborator
     restart: unless-stopped
     depends_on:
       minio:
@@ -242,8 +237,7 @@ services:
   front:
     build:
       context: .
-      dockerfile: Dockerfile.coolify
-      target: front
+      dockerfile: docker/Dockerfile.front
     restart: unless-stopped
     depends_on:
       account:
@@ -289,8 +283,7 @@ services:
   datalake:
     build:
       context: .
-      dockerfile: Dockerfile.coolify
-      target: datalake
+      dockerfile: docker/Dockerfile.datalake
     restart: unless-stopped
     depends_on:
       minio:
@@ -377,8 +370,7 @@ services:
   fulltext:
     build:
       context: .
-      dockerfile: Dockerfile.coolify
-      target: fulltext
+      dockerfile: docker/Dockerfile.fulltext
     restart: unless-stopped
     depends_on:
       elastic:
@@ -415,8 +407,7 @@ services:
   rekoni:
     build:
       context: .
-      dockerfile: Dockerfile.coolify
-      target: rekoni
+      dockerfile: docker/Dockerfile.rekoni
     restart: unless-stopped
     environment:
       STATS_URL: http://stats:4900
@@ -426,8 +417,7 @@ services:
   preview:
     build:
       context: .
-      dockerfile: Dockerfile.coolify
-      target: preview
+      dockerfile: docker/Dockerfile.preview
     restart: unless-stopped
     environment:
       SECRET: ${SERVER_SECRET:-changeme-use-a-long-random-string}
@@ -441,8 +431,7 @@ services:
   link-preview:
     build:
       context: .
-      dockerfile: Dockerfile.coolify
-      target: link-preview
+      dockerfile: docker/Dockerfile.link-preview
     restart: unless-stopped
     environment:
       SECRET: ${SERVER_SECRET:-changeme-use-a-long-random-string}
@@ -457,8 +446,7 @@ services:
   export-svc:
     build:
       context: .
-      dockerfile: Dockerfile.coolify
-      target: export-svc
+      dockerfile: docker/Dockerfile.export
     restart: unless-stopped
     depends_on:
       minio:
@@ -482,8 +470,7 @@ services:
   backup:
     build:
       context: .
-      dockerfile: Dockerfile.coolify
-      target: backup
+      dockerfile: docker/Dockerfile.backup
     restart: unless-stopped
     depends_on:
       minio:
@@ -511,8 +498,7 @@ services:
   backup-api:
     build:
       context: .
-      dockerfile: Dockerfile.coolify
-      target: backup-api
+      dockerfile: docker/Dockerfile.backup-api
     restart: unless-stopped
     depends_on:
       minio:
@@ -539,8 +525,7 @@ services:
   analytics:
     build:
       context: .
-      dockerfile: Dockerfile.coolify
-      target: analytics
+      dockerfile: docker/Dockerfile.analytics
     restart: unless-stopped
     depends_on:
       account:
@@ -560,8 +545,7 @@ services:
   process-svc:
     build:
       context: .
-      dockerfile: Dockerfile.coolify
-      target: process-svc
+      dockerfile: docker/Dockerfile.process-svc
     restart: unless-stopped
     depends_on:
       redpanda:
@@ -577,8 +561,7 @@ services:
   time-machine:
     build:
       context: .
-      dockerfile: Dockerfile.coolify
-      target: time-machine
+      dockerfile: docker/Dockerfile.time-machine
     restart: unless-stopped
     depends_on:
       redpanda:
@@ -595,8 +578,7 @@ services:
   events-proc:
     build:
       context: .
-      dockerfile: Dockerfile.coolify
-      target: events-proc
+      dockerfile: docker/Dockerfile.events-proc
     restart: unless-stopped
     depends_on:
       redpanda:
@@ -615,8 +597,7 @@ services:
   rating:
     build:
       context: .
-      dockerfile: Dockerfile.coolify
-      target: rating
+      dockerfile: docker/Dockerfile.rating
     restart: unless-stopped
     depends_on:
       redpanda:
@@ -647,8 +628,7 @@ services:
   # sign:
   #   build:
   #     context: .
-  #     dockerfile: Dockerfile.coolify
-  #     target: sign
+  #     dockerfile: docker/Dockerfile.sign
   #   restart: unless-stopped
   #   depends_on:
   #     account:
@@ -672,8 +652,7 @@ services:
   # print:
   #   build:
   #     context: .
-  #     dockerfile: Dockerfile.coolify
-  #     target: print
+  #     dockerfile: docker/Dockerfile.print
   #   restart: unless-stopped
   #   depends_on:
   #     account:
