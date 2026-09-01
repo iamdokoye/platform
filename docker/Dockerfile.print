@@ -1,0 +1,38 @@
+# syntax=docker/dockerfile:1.7
+# Optional service — uncomment in docker-compose.yaml to enable
+ARG NODE_VERSION=22
+ARG CHROMIUM_VERSION=139.0.7258.154-1~deb12u1
+
+FROM node:${NODE_VERSION}-bookworm AS builder
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        git python3 make g++ \
+    && rm -rf /var/lib/apt/lists/*
+RUN npm install -g @microsoft/rush@5.158.1
+WORKDIR /app
+COPY . .
+RUN git config --global --add safe.directory /app 2>/dev/null || true
+RUN rush install
+RUN rush bundle -p 20 --to @hcengineering/pod-print
+
+FROM node:${NODE_VERSION}
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libjemalloc2 dumb-init ca-certificates \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+RUN npm install --ignore-scripts=false bufferutil sharp@v0.34.3 utf-8-validate snappy --unsafe-perm
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
+    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium \
+    LD_PRELOAD= \
+    MALLOC_CONF= \
+    NODE_ENV=production
+ARG CHROMIUM_VERSION
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        gnupg wget libxss1 \
+        fonts-ipafont-gothic fonts-wqy-zenhei fonts-thai-tlwg \
+        fonts-kacst fonts-freefont-ttf \
+    && apt-get install -y --no-install-recommends \
+        chromium-common=${CHROMIUM_VERSION} \
+        chromium=${CHROMIUM_VERSION} \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+WORKDIR /usr/src/app
+COPY --from=builder /app/services/print/pod-print/bundle/bundle.js ./
+CMD ["dumb-init", "node", "bundle.js"]
