@@ -210,7 +210,7 @@ services:
       ACCOUNTS_URL: http://account:3000
       STATS_URL: http://stats:4900
       BRANDING_PATH: /var/cfg/branding.json
-      BACKUP_STORAGE: minio|minio?accessKey=${MINIO_ACCESS_KEY:-minioadmin}&secretKey=${MINIO_SECRET_KEY:-minioadmin}
+      BACKUP_STORAGE: "minio|minio?accessKey=${MINIO_ACCESS_KEY:-minioadmin}&secretKey=${MINIO_SECRET_KEY:-minioadmin}"
       BACKUP_BUCKET: ${BACKUP_BUCKET_NAME:-huly-backups}
       MAIL_URL: ${MAIL_URL:-}
     volumes:
@@ -310,7 +310,7 @@ services:
       QUEUE_CONFIG: redpanda:9092
       ACCOUNTS_URL: http://account:3000
       STATS_URL: http://stats:4900
-      BUCKETS: blobs,eu|http://minio:9000?accessKey=${MINIO_ACCESS_KEY:-minioadmin}&secretKey=${MINIO_SECRET_KEY:-minioadmin}
+      BUCKETS: "blobs,eu|http://minio:9000?accessKey=${MINIO_ACCESS_KEY:-minioadmin}&secretKey=${MINIO_SECRET_KEY:-minioadmin}"
     ports:
       - "${DATALAKE_PORT:-4030}:4030"
 
@@ -503,7 +503,7 @@ services:
       QUEUE_CONFIG: redpanda:9092
       ACCOUNTS_URL: http://account:3000
       STATS_URL: http://stats:4900
-      STORAGE: minio|minio?accessKey=${MINIO_ACCESS_KEY:-minioadmin}&secretKey=${MINIO_SECRET_KEY:-minioadmin}
+      STORAGE: "minio|minio?accessKey=${MINIO_ACCESS_KEY:-minioadmin}&secretKey=${MINIO_SECRET_KEY:-minioadmin}"
       WORKSPACE_STORAGE: datalake|http://datalake:4030
       BUCKET_NAME: ${BACKUP_BUCKET_NAME:-huly-backups}
       INTERVAL: 3600
@@ -527,7 +527,7 @@ services:
       PORT: 4039
       ACCOUNTS_URL: http://account:3000
       STATS_URL: http://stats:4900
-      STORAGE: minio|minio?accessKey=${MINIO_ACCESS_KEY:-minioadmin}&secretKey=${MINIO_SECRET_KEY:-minioadmin}
+      STORAGE: "minio|minio?accessKey=${MINIO_ACCESS_KEY:-minioadmin}&secretKey=${MINIO_SECRET_KEY:-minioadmin}"
       BUCKET_NAME: ${BACKUP_BUCKET_NAME:-huly-backups}
     ports:
       - "${BACKUP_API_PORT:-4039}:4039"
