@@ -1,7 +1,7 @@
 # ================================================================
 # Promaly Platform — Coolify / self-hosted Docker Compose
 #
-# Each Node.js service has its own Dockerfile under docker/Dockerfile.<service>.
+# Builds all services from source. Uses the multi-stage Dockerfile at the repo root.
 # Rust services (hulylake, hulypulse) build from their own Dockerfiles.
 # Infrastructure services use stable upstream images.
 #
@@ -100,7 +100,7 @@ services:
   stats:
     build:
       context: .
-      dockerfile: docker/Dockerfile.stats
+      target: stats
     restart: unless-stopped
     environment:
       SERVER_SECRET: ${SERVER_SECRET:-changeme-use-a-long-random-string}
@@ -111,7 +111,7 @@ services:
   account:
     build:
       context: .
-      dockerfile: docker/Dockerfile.account
+      target: account
     restart: unless-stopped
     depends_on:
       cockroach:
@@ -142,7 +142,7 @@ services:
   transactor:
     build:
       context: .
-      dockerfile: docker/Dockerfile.transactor
+      target: transactor
     restart: unless-stopped
     depends_on:
       cockroach:
@@ -182,7 +182,7 @@ services:
   workspace:
     build:
       context: .
-      dockerfile: docker/Dockerfile.workspace
+      target: workspace
     restart: unless-stopped
     depends_on:
       cockroach:
@@ -215,7 +215,7 @@ services:
   collaborator:
     build:
       context: .
-      dockerfile: docker/Dockerfile.collaborator
+      target: collaborator
     restart: unless-stopped
     depends_on:
       minio:
@@ -237,7 +237,7 @@ services:
   front:
     build:
       context: .
-      dockerfile: docker/Dockerfile.front
+      target: front
     restart: unless-stopped
     depends_on:
       account:
@@ -283,7 +283,7 @@ services:
   datalake:
     build:
       context: .
-      dockerfile: docker/Dockerfile.datalake
+      target: datalake
     restart: unless-stopped
     depends_on:
       minio:
@@ -370,7 +370,7 @@ services:
   fulltext:
     build:
       context: .
-      dockerfile: docker/Dockerfile.fulltext
+      target: fulltext
     restart: unless-stopped
     depends_on:
       elastic:
@@ -407,7 +407,7 @@ services:
   rekoni:
     build:
       context: .
-      dockerfile: docker/Dockerfile.rekoni
+      target: rekoni
     restart: unless-stopped
     environment:
       STATS_URL: http://stats:4900
@@ -417,7 +417,7 @@ services:
   preview:
     build:
       context: .
-      dockerfile: docker/Dockerfile.preview
+      target: preview
     restart: unless-stopped
     environment:
       SECRET: ${SERVER_SECRET:-changeme-use-a-long-random-string}
@@ -431,7 +431,7 @@ services:
   link-preview:
     build:
       context: .
-      dockerfile: docker/Dockerfile.link-preview
+      target: link-preview
     restart: unless-stopped
     environment:
       SECRET: ${SERVER_SECRET:-changeme-use-a-long-random-string}
@@ -446,7 +446,7 @@ services:
   export-svc:
     build:
       context: .
-      dockerfile: docker/Dockerfile.export
+      target: export-svc
     restart: unless-stopped
     depends_on:
       minio:
@@ -470,7 +470,7 @@ services:
   backup:
     build:
       context: .
-      dockerfile: docker/Dockerfile.backup
+      target: backup
     restart: unless-stopped
     depends_on:
       minio:
@@ -498,7 +498,7 @@ services:
   backup-api:
     build:
       context: .
-      dockerfile: docker/Dockerfile.backup-api
+      target: backup-api
     restart: unless-stopped
     depends_on:
       minio:
@@ -525,7 +525,7 @@ services:
   analytics:
     build:
       context: .
-      dockerfile: docker/Dockerfile.analytics
+      target: analytics
     restart: unless-stopped
     depends_on:
       account:
@@ -545,7 +545,7 @@ services:
   process-svc:
     build:
       context: .
-      dockerfile: docker/Dockerfile.process-svc
+      target: process-svc
     restart: unless-stopped
     depends_on:
       redpanda:
@@ -561,7 +561,7 @@ services:
   time-machine:
     build:
       context: .
-      dockerfile: docker/Dockerfile.time-machine
+      target: time-machine
     restart: unless-stopped
     depends_on:
       redpanda:
@@ -578,7 +578,7 @@ services:
   events-proc:
     build:
       context: .
-      dockerfile: docker/Dockerfile.events-proc
+      target: events-proc
     restart: unless-stopped
     depends_on:
       redpanda:
@@ -597,7 +597,7 @@ services:
   rating:
     build:
       context: .
-      dockerfile: docker/Dockerfile.rating
+      target: rating
     restart: unless-stopped
     depends_on:
       redpanda:
@@ -628,7 +628,8 @@ services:
   # sign:
   #   build:
   #     context: .
-  #     dockerfile: docker/Dockerfile.sign
+  #     context: .
+  #     target: sign
   #   restart: unless-stopped
   #   depends_on:
   #     account:
@@ -652,7 +653,8 @@ services:
   # print:
   #   build:
   #     context: .
-  #     dockerfile: docker/Dockerfile.print
+  #     context: .
+  #     target: print
   #   restart: unless-stopped
   #   depends_on:
   #     account:
