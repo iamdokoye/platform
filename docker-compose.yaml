@@ -3,37 +3,11 @@
 #
 # Builds all Node.js services from source using Dockerfile.coolify.
 # Rust services (hulylake, hulypulse) build from their own Dockerfiles.
-# Go service (stream) builds from foundations/stream/Dockerfile.
 # Infrastructure services use stable upstream images.
 #
-# Quick start:
-#   cp .env.coolify.example .env
-#   # Edit .env — at minimum set PUBLIC_URL and SERVER_SECRET
-#   docker compose -f docker-compose.coolify.yml up -d
-#
-# For Coolify: point it at this file as the compose file path.
-# Traefik labels are not included here; add them via Coolify's UI
-# or a docker-compose.override.yml specific to your deployment.
-#
-# Environment variables (see .env.coolify.example):
-#   PUBLIC_URL           — public base URL  (e.g. https://huly.example.com)
-#   TRANSACTOR_WS_URL   — WebSocket URL clients use to reach the transactor
-#   COLLABORATOR_WS_URL — WebSocket URL clients use to reach the collaborator
-#   SERVER_SECRET        — shared HMAC secret (change for production!)
-#   MINIO_ACCESS_KEY     — MinIO / S3 access key
-#   MINIO_SECRET_KEY     — MinIO / S3 secret key
+# Copy .env.coolify.example to .env and set at minimum:
+#   PUBLIC_URL, SERVER_SECRET, TRANSACTOR_WS_URL, COLLABORATOR_WS_URL
 # ================================================================
-
-x-build-args: &build-node
-  context: .
-  dockerfile: Dockerfile.coolify
-
-x-restart: &restart
-  restart: unless-stopped
-
-x-common-env: &common-env
-  SERVER_SECRET: ${SERVER_SECRET:-changeme-use-a-long-random-string}
-  OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_ENDPOINT:-http://jaeger:4318/v1/traces}
 
 services:
 
@@ -43,7 +17,7 @@ services:
 
   cockroach:
     image: cockroachdb/cockroach:latest-v24.3
-    <<: *restart
+    restart: unless-stopped
     command: start-single-node --insecure
     volumes:
       - cockroach_data:/cockroach/cockroach-data
@@ -54,11 +28,10 @@ services:
       retries: 10
     ports:
       - "${COCKROACH_DB_PORT:-26257}:26257"
-      # Admin UI (optional): - "8089:8080"
 
   redpanda:
     image: docker.redpanda.com/redpandadata/redpanda:v24.3.6
-    <<: *restart
+    restart: unless-stopped
     command:
       - redpanda
       - start
@@ -83,7 +56,7 @@ services:
 
   minio:
     image: minio/minio
-    <<: *restart
+    restart: unless-stopped
     command: server /data --address ":9000" --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minioadmin}
@@ -100,7 +73,7 @@ services:
 
   elastic:
     image: elasticsearch:7.14.2
-    <<: *restart
+    restart: unless-stopped
     environment:
       discovery.type: single-node
       ES_JAVA_OPTS: -Xms256m -Xmx450m
@@ -118,7 +91,7 @@ services:
 
   redis:
     image: redis:8.0.2-alpine3.21
-    <<: *restart
+    restart: unless-stopped
 
   # ════════════════════════════════════════════════════════════
   # Core application services (built from source)
@@ -126,27 +99,29 @@ services:
 
   stats:
     build:
-      <<: *build-node
+      context: .
+      dockerfile: Dockerfile.coolify
       target: stats
-    <<: *restart
+    restart: unless-stopped
     environment:
-      <<: *common-env
+      SERVER_SECRET: ${SERVER_SECRET:-changeme-use-a-long-random-string}
       PORT: 4900
     ports:
       - "${STATS_PORT:-4900}:4900"
 
   account:
     build:
-      <<: *build-node
+      context: .
+      dockerfile: Dockerfile.coolify
       target: account
-    <<: *restart
+    restart: unless-stopped
     depends_on:
       cockroach:
         condition: service_healthy
       stats:
         condition: service_started
     environment:
-      <<: *common-env
+      SERVER_SECRET: ${SERVER_SECRET:-changeme-use-a-long-random-string}
       ACCOUNT_PORT: 3000
       DB_URL: postgresql://root@cockroach:26257/defaultdb?sslmode=disable
       QUEUE_CONFIG: redpanda:9092
@@ -161,7 +136,6 @@ services:
       LAST_NAME_FIRST: "true"
       BRANDING_PATH: /var/cfg/branding.json
       MAIL_URL: ${MAIL_URL:-}
-      MAILBOX_DOMAINS: ${MAILBOX_DOMAINS:-}
     volumes:
       - ./dev/branding.json:/var/cfg/branding.json:ro
     ports:
@@ -169,9 +143,10 @@ services:
 
   transactor:
     build:
-      <<: *build-node
+      context: .
+      dockerfile: Dockerfile.coolify
       target: transactor
-    <<: *restart
+    restart: unless-stopped
     depends_on:
       cockroach:
         condition: service_healthy
@@ -182,7 +157,7 @@ services:
       stats:
         condition: service_started
     environment:
-      <<: *common-env
+      SERVER_SECRET: ${SERVER_SECRET:-changeme-use-a-long-random-string}
       SERVER_PORT: 3332
       REGION: cockroach
       DB_URL: postgresql://root@cockroach:26257/defaultdb?sslmode=disable
@@ -198,7 +173,6 @@ services:
       METRICS_FILE: metrics.txt
       LAST_NAME_FIRST: "true"
       BRANDING_PATH: /var/cfg/branding.json
-      AI_BOT_URL: ""
       COMMUNICATION_API_ENABLED: "true"
       RATE_LIMIT_MAX: 250
       RATE_LIMIT_WINDOW: 30000
@@ -210,9 +184,10 @@ services:
 
   workspace:
     build:
-      <<: *build-node
+      context: .
+      dockerfile: Dockerfile.coolify
       target: workspace
-    <<: *restart
+    restart: unless-stopped
     depends_on:
       cockroach:
         condition: service_healthy
@@ -225,7 +200,7 @@ services:
       stats:
         condition: service_started
     environment:
-      <<: *common-env
+      SERVER_SECRET: ${SERVER_SECRET:-changeme-use-a-long-random-string}
       WS_OPERATION: all+backup
       REGION: cockroach
       DB_URL: postgresql://root@cockroach:26257/defaultdb?sslmode=disable
@@ -243,9 +218,10 @@ services:
 
   collaborator:
     build:
-      <<: *build-node
+      context: .
+      dockerfile: Dockerfile.coolify
       target: collaborator
-    <<: *restart
+    restart: unless-stopped
     depends_on:
       minio:
         condition: service_healthy
@@ -254,9 +230,9 @@ services:
       stats:
         condition: service_started
     environment:
-      <<: *common-env
-      COLLABORATOR_PORT: 3078
+      SERVER_SECRET: ${SERVER_SECRET:-changeme-use-a-long-random-string}
       SECRET: ${SERVER_SECRET:-changeme-use-a-long-random-string}
+      COLLABORATOR_PORT: 3078
       ACCOUNTS_URL: http://account:3000
       STORAGE_CONFIG: datalake|http://datalake:4030
       STATS_URL: http://stats:4900
@@ -265,23 +241,23 @@ services:
 
   front:
     build:
-      <<: *build-node
+      context: .
+      dockerfile: Dockerfile.coolify
       target: front
-    <<: *restart
+    restart: unless-stopped
     depends_on:
       account:
         condition: service_started
       stats:
         condition: service_started
     environment:
-      <<: *common-env
+      SERVER_SECRET: ${SERVER_SECRET:-changeme-use-a-long-random-string}
       SERVER_PORT: 8080
       ACCOUNTS_URL: http://account:3000
       STATS_URL: http://stats:4900
-      # Client-facing URLs — must be reachable from the browser
       UPLOAD_URL: /files
-      FILES_URL: ${DATALAKE_URL:-${PUBLIC_URL:-http://localhost:8087}}/blob/:workspace/:blobId/:filename
-      DATALAKE_URL: ${DATALAKE_URL:-${PUBLIC_URL:-http://localhost:8087}}
+      FILES_URL: ${PUBLIC_URL:-http://localhost:8087}/files/:workspace/:blobId/:filename
+      DATALAKE_URL: ${PUBLIC_URL:-http://localhost:8087}
       PREVIEW_URL: ${PREVIEW_URL:-http://localhost:4040}
       COLLABORATOR_URL: ${COLLABORATOR_WS_URL:-ws://localhost:3078}
       REKONI_URL: http://rekoni:4004
@@ -312,9 +288,10 @@ services:
 
   datalake:
     build:
-      <<: *build-node
+      context: .
+      dockerfile: Dockerfile.coolify
       target: datalake
-    <<: *restart
+    restart: unless-stopped
     depends_on:
       minio:
         condition: service_healthy
@@ -325,15 +302,14 @@ services:
       stats:
         condition: service_started
     environment:
-      <<: *common-env
-      PORT: 4030
+      SERVER_SECRET: ${SERVER_SECRET:-changeme-use-a-long-random-string}
       SECRET: ${SERVER_SECRET:-changeme-use-a-long-random-string}
+      PORT: 4030
       REGION: cockroach
       DB_URL: postgresql://root@cockroach:26257/defaultdb?sslmode=disable
       QUEUE_CONFIG: redpanda:9092
       ACCOUNTS_URL: http://account:3000
       STATS_URL: http://stats:4900
-      # MinIO bucket config: name,region|endpoint?creds
       BUCKETS: blobs,eu|http://minio:9000?accessKey=${MINIO_ACCESS_KEY:-minioadmin}&secretKey=${MINIO_SECRET_KEY:-minioadmin}
     ports:
       - "${DATALAKE_PORT:-4030}:4030"
@@ -342,7 +318,7 @@ services:
     build:
       context: foundations/hulylake
       dockerfile: Dockerfile
-    <<: *restart
+    restart: unless-stopped
     depends_on:
       minio:
         condition: service_healthy
@@ -360,7 +336,7 @@ services:
 
   hulykvs:
     image: hardcoreeng/hulykvs
-    <<: *restart
+    restart: unless-stopped
     depends_on:
       cockroach:
         condition: service_healthy
@@ -374,7 +350,7 @@ services:
     build:
       context: foundations/hulypulse
       dockerfile: Dockerfile
-    <<: *restart
+    restart: unless-stopped
     depends_on:
       redis:
         condition: service_started
@@ -386,7 +362,7 @@ services:
 
   hulygun:
     image: hardcoreeng/hulygun
-    <<: *restart
+    restart: unless-stopped
     depends_on:
       redpanda:
         condition: service_healthy
@@ -400,9 +376,10 @@ services:
 
   fulltext:
     build:
-      <<: *build-node
+      context: .
+      dockerfile: Dockerfile.coolify
       target: fulltext
-    <<: *restart
+    restart: unless-stopped
     depends_on:
       elastic:
         condition: service_healthy
@@ -415,7 +392,7 @@ services:
       stats:
         condition: service_started
     environment:
-      <<: *common-env
+      SERVER_SECRET: ${SERVER_SECRET:-changeme-use-a-long-random-string}
       PORT: 4702
       REGION: cockroach
       DB_URL: postgresql://root@cockroach:26257/defaultdb?sslmode=disable
@@ -437,9 +414,10 @@ services:
 
   rekoni:
     build:
-      <<: *build-node
+      context: .
+      dockerfile: Dockerfile.coolify
       target: rekoni
-    <<: *restart
+    restart: unless-stopped
     environment:
       STATS_URL: http://stats:4900
     ports:
@@ -447,9 +425,10 @@ services:
 
   preview:
     build:
-      <<: *build-node
+      context: .
+      dockerfile: Dockerfile.coolify
       target: preview
-    <<: *restart
+    restart: unless-stopped
     environment:
       SECRET: ${SERVER_SECRET:-changeme-use-a-long-random-string}
       STORAGE_CONFIG: datalake|http://datalake:4030
@@ -461,9 +440,10 @@ services:
 
   link-preview:
     build:
-      <<: *build-node
+      context: .
+      dockerfile: Dockerfile.coolify
       target: link-preview
-    <<: *restart
+    restart: unless-stopped
     environment:
       SECRET: ${SERVER_SECRET:-changeme-use-a-long-random-string}
       PORT: 4041
@@ -476,9 +456,10 @@ services:
 
   export-svc:
     build:
-      <<: *build-node
+      context: .
+      dockerfile: Dockerfile.coolify
       target: export-svc
-    <<: *restart
+    restart: unless-stopped
     depends_on:
       minio:
         condition: service_healthy
@@ -487,9 +468,9 @@ services:
       stats:
         condition: service_started
     environment:
-      <<: *common-env
-      PORT: 4009
+      SERVER_SECRET: ${SERVER_SECRET:-changeme-use-a-long-random-string}
       SECRET: ${SERVER_SECRET:-changeme-use-a-long-random-string}
+      PORT: 4009
       SERVICE_ID: export-service
       DB_URL: postgresql://root@cockroach:26257/defaultdb?sslmode=disable
       STORAGE_CONFIG: datalake|http://datalake:4030
@@ -500,9 +481,10 @@ services:
 
   backup:
     build:
-      <<: *build-node
+      context: .
+      dockerfile: Dockerfile.coolify
       target: backup
-    <<: *restart
+    restart: unless-stopped
     depends_on:
       minio:
         condition: service_healthy
@@ -513,7 +495,7 @@ services:
       stats:
         condition: service_started
     environment:
-      <<: *common-env
+      SERVER_SECRET: ${SERVER_SECRET:-changeme-use-a-long-random-string}
       SECRET: ${SERVER_SECRET:-changeme-use-a-long-random-string}
       REGION: cockroach
       DB_URL: postgresql://root@cockroach:26257/defaultdb?sslmode=disable
@@ -528,9 +510,10 @@ services:
 
   backup-api:
     build:
-      <<: *build-node
+      context: .
+      dockerfile: Dockerfile.coolify
       target: backup-api
-    <<: *restart
+    restart: unless-stopped
     depends_on:
       minio:
         condition: service_healthy
@@ -539,9 +522,9 @@ services:
       stats:
         condition: service_started
     environment:
-      <<: *common-env
-      PORT: 4039
+      SERVER_SECRET: ${SERVER_SECRET:-changeme-use-a-long-random-string}
       SECRET: ${SERVER_SECRET:-changeme-use-a-long-random-string}
+      PORT: 4039
       ACCOUNTS_URL: http://account:3000
       STATS_URL: http://stats:4900
       STORAGE: minio|minio?accessKey=${MINIO_ACCESS_KEY:-minioadmin}&secretKey=${MINIO_SECRET_KEY:-minioadmin}
@@ -555,31 +538,31 @@ services:
 
   analytics:
     build:
-      <<: *build-node
+      context: .
+      dockerfile: Dockerfile.coolify
       target: analytics
-    <<: *restart
+    restart: unless-stopped
     depends_on:
       account:
         condition: service_started
       stats:
         condition: service_started
     environment:
-      <<: *common-env
-      PORT: 4017
+      SERVER_SECRET: ${SERVER_SECRET:-changeme-use-a-long-random-string}
       SECRET: ${SERVER_SECRET:-changeme-use-a-long-random-string}
+      PORT: 4017
       SERVICE_ID: analytics-collector-service
       ACCOUNTS_URL: http://account:3000
       STATS_URL: http://stats:4900
-      # POSTHOG_HOST: ${POSTHOG_HOST:-}
-      # POSTHOG_API_KEY: ${POSTHOG_API_KEY:-}
     ports:
       - "${ANALYTICS_PORT:-4017}:4017"
 
   process-svc:
     build:
-      <<: *build-node
+      context: .
+      dockerfile: Dockerfile.coolify
       target: process-svc
-    <<: *restart
+    restart: unless-stopped
     depends_on:
       redpanda:
         condition: service_healthy
@@ -593,9 +576,10 @@ services:
 
   time-machine:
     build:
-      <<: *build-node
+      context: .
+      dockerfile: Dockerfile.coolify
       target: time-machine
-    <<: *restart
+    restart: unless-stopped
     depends_on:
       redpanda:
         condition: service_healthy
@@ -610,28 +594,30 @@ services:
 
   events-proc:
     build:
-      <<: *build-node
+      context: .
+      dockerfile: Dockerfile.coolify
       target: events-proc
-    <<: *restart
+    restart: unless-stopped
     depends_on:
       redpanda:
         condition: service_healthy
       account:
         condition: service_started
     environment:
-      <<: *common-env
+      SERVER_SECRET: ${SERVER_SECRET:-changeme-use-a-long-random-string}
+      SECRET: ${SERVER_SECRET:-changeme-use-a-long-random-string}
       SERVICE_ID: events-processor
       LOG_LEVEL: info
-      SECRET: ${SERVER_SECRET:-changeme-use-a-long-random-string}
       ACCOUNTS_URL: http://account:3000
       QUEUE_CONFIG: redpanda:9092
       QUEUE_REGION: cockroach
 
   rating:
     build:
-      <<: *build-node
+      context: .
+      dockerfile: Dockerfile.coolify
       target: rating
-    <<: *restart
+    restart: unless-stopped
     depends_on:
       redpanda:
         condition: service_healthy
@@ -644,7 +630,7 @@ services:
       stats:
         condition: service_started
     environment:
-      <<: *common-env
+      SERVER_SECRET: ${SERVER_SECRET:-changeme-use-a-long-random-string}
       REGION: cockroach
       DB_URL: postgresql://root@cockroach:26257/defaultdb?sslmode=disable
       QUEUE_CONFIG: redpanda:9092
@@ -660,9 +646,10 @@ services:
 
   # sign:
   #   build:
-  #     <<: *build-node
+  #     context: .
+  #     dockerfile: Dockerfile.coolify
   #     target: sign
-  #   <<: *restart
+  #   restart: unless-stopped
   #   depends_on:
   #     account:
   #       condition: service_started
@@ -684,9 +671,10 @@ services:
 
   # print:
   #   build:
-  #     <<: *build-node
+  #     context: .
+  #     dockerfile: Dockerfile.coolify
   #     target: print
-  #   <<: *restart
+  #   restart: unless-stopped
   #   depends_on:
   #     account:
   #       condition: service_started
@@ -701,11 +689,11 @@ services:
   #   ports:
   #     - "4005:4005"
 
-  # stream:  # Video recording (Go service, separate source tree)
+  # stream:
   #   build:
   #     context: foundations/stream
   #     dockerfile: Dockerfile
-  #   <<: *restart
+  #   restart: unless-stopped
   #   environment:
   #     STREAM_ENDPOINT_URL: datalake://datalake:4030
   #     STREAM_INSECURE: "true"
@@ -719,9 +707,9 @@ services:
   #   ports:
   #     - "1080:1080"
 
-  # jaeger:  # Distributed tracing — set OTEL_ENDPOINT in .env to enable
+  # jaeger:
   #   image: jaegertracing/all-in-one:latest
-  #   <<: *restart
+  #   restart: unless-stopped
   #   environment:
   #     COLLECTOR_OTLP_ENABLED: "true"
   #     SPAN_STORAGE_TYPE: badger
@@ -730,7 +718,7 @@ services:
   #   volumes:
   #     - telemetry:/badger
   #   ports:
-  #     - "16686:16686"  # Web UI
+  #     - "16686:16686"
   #     - "4317:4317"
   #     - "4318:4318"
 
@@ -740,7 +728,6 @@ volumes:
   minio_data:
   elastic_data:
   preview_cache:
-  # telemetry:  # uncomment if enabling jaeger
 
 networks:
   default:
