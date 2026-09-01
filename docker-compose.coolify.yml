@@ -1,0 +1,748 @@
+# ================================================================
+# Promaly Platform — Coolify / self-hosted Docker Compose
+#
+# Builds all Node.js services from source using Dockerfile.coolify.
+# Rust services (hulylake, hulypulse) build from their own Dockerfiles.
+# Go service (stream) builds from foundations/stream/Dockerfile.
+# Infrastructure services use stable upstream images.
+#
+# Quick start:
+#   cp .env.coolify.example .env
+#   # Edit .env — at minimum set PUBLIC_URL and SERVER_SECRET
+#   docker compose -f docker-compose.coolify.yml up -d
+#
+# For Coolify: point it at this file as the compose file path.
+# Traefik labels are not included here; add them via Coolify's UI
+# or a docker-compose.override.yml specific to your deployment.
+#
+# Environment variables (see .env.coolify.example):
+#   PUBLIC_URL           — public base URL  (e.g. https://huly.example.com)
+#   TRANSACTOR_WS_URL   — WebSocket URL clients use to reach the transactor
+#   COLLABORATOR_WS_URL — WebSocket URL clients use to reach the collaborator
+#   SERVER_SECRET        — shared HMAC secret (change for production!)
+#   MINIO_ACCESS_KEY     — MinIO / S3 access key
+#   MINIO_SECRET_KEY     — MinIO / S3 secret key
+# ================================================================
+
+x-build-args: &build-node
+  context: .
+  dockerfile: Dockerfile.coolify
+
+x-restart: &restart
+  restart: unless-stopped
+
+x-common-env: &common-env
+  SERVER_SECRET: ${SERVER_SECRET:-changeme-use-a-long-random-string}
+  OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_ENDPOINT:-http://jaeger:4318/v1/traces}
+
+services:
+
+  # ════════════════════════════════════════════════════════════
+  # Infrastructure
+  # ════════════════════════════════════════════════════════════
+
+  cockroach:
+    image: cockroachdb/cockroach:latest-v24.3
+    <<: *restart
+    command: start-single-node --insecure
+    volumes:
+      - cockroach_data:/cockroach/cockroach-data
+    healthcheck:
+      test: ["CMD", "cockroach", "sql", "--insecure", "-e", "SELECT 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    ports:
+      - "${COCKROACH_DB_PORT:-26257}:26257"
+      # Admin UI (optional): - "8089:8080"
+
+  redpanda:
+    image: docker.redpanda.com/redpandadata/redpanda:v24.3.6
+    <<: *restart
+    command:
+      - redpanda
+      - start
+      - --kafka-addr internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr internal://redpanda:9092,external://localhost:19092
+      - --pandaproxy-addr internal://0.0.0.0:8082,external://0.0.0.0:18082
+      - --advertise-pandaproxy-addr internal://redpanda:8082,external://localhost:18082
+      - --schema-registry-addr internal://0.0.0.0:8081,external://0.0.0.0:18081
+      - --rpc-addr redpanda:33145
+      - --advertise-rpc-addr redpanda:33145
+      - --mode dev-container
+      - --smp 1
+      - --default-log-level=info
+      - --memory 512M
+    volumes:
+      - redpanda_data:/var/lib/redpanda/data
+    healthcheck:
+      test: ["CMD", "rpk", "cluster", "info"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  minio:
+    image: minio/minio
+    <<: *restart
+    command: server /data --address ":9000" --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-minioadmin}
+    volumes:
+      - minio_data:/data
+    ports:
+      - "${MINIO_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      retries: 10
+
+  elastic:
+    image: elasticsearch:7.14.2
+    <<: *restart
+    environment:
+      discovery.type: single-node
+      ES_JAVA_OPTS: -Xms256m -Xmx450m
+    volumes:
+      - elastic_data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health | grep -qv '\"status\":\"red\"'"]
+      interval: 20s
+      timeout: 10s
+      retries: 10
+    deploy:
+      resources:
+        limits:
+          memory: 1024m
+
+  redis:
+    image: redis:8.0.2-alpine3.21
+    <<: *restart
+
+  # ════════════════════════════════════════════════════════════
+  # Core application services (built from source)
+  # ════════════════════════════════════════════════════════════
+
+  stats:
+    build:
+      <<: *build-node
+      target: stats
+    <<: *restart
+    environment:
+      <<: *common-env
+      PORT: 4900
+    ports:
+      - "${STATS_PORT:-4900}:4900"
+
+  account:
+    build:
+      <<: *build-node
+      target: account
+    <<: *restart
+    depends_on:
+      cockroach:
+        condition: service_healthy
+      stats:
+        condition: service_started
+    environment:
+      <<: *common-env
+      ACCOUNT_PORT: 3000
+      DB_URL: postgresql://root@cockroach:26257/defaultdb?sslmode=disable
+      QUEUE_CONFIG: redpanda:9092
+      STORAGE_CONFIG: datalake|http://datalake:4030
+      ACCOUNTS_URL: http://account:3000
+      TRANSACTOR_URL: ${TRANSACTOR_WS_URL:-ws://transactor:3332};;cockroach,
+      STATS_URL: http://stats:4900
+      FRONT_URL: ${PUBLIC_URL:-http://localhost:8087}
+      REGION_INFO: cockroach|CockroachDB
+      ADMIN_EMAILS: ${ADMIN_EMAILS:-admin}
+      WORKSPACE_LIMIT_PER_USER: 10000
+      LAST_NAME_FIRST: "true"
+      BRANDING_PATH: /var/cfg/branding.json
+      MAIL_URL: ${MAIL_URL:-}
+      MAILBOX_DOMAINS: ${MAILBOX_DOMAINS:-}
+    volumes:
+      - ./dev/branding.json:/var/cfg/branding.json:ro
+    ports:
+      - "${ACCOUNT_PORT:-3000}:3000"
+
+  transactor:
+    build:
+      <<: *build-node
+      target: transactor
+    <<: *restart
+    depends_on:
+      cockroach:
+        condition: service_healthy
+      redpanda:
+        condition: service_healthy
+      account:
+        condition: service_started
+      stats:
+        condition: service_started
+    environment:
+      <<: *common-env
+      SERVER_PORT: 3332
+      REGION: cockroach
+      DB_URL: postgresql://root@cockroach:26257/defaultdb?sslmode=disable
+      QUEUE_CONFIG: redpanda:9092
+      STORAGE_CONFIG: datalake|http://datalake:4030
+      ACCOUNTS_URL: http://account:3000
+      FRONT_URL: ${PUBLIC_URL:-http://localhost:8087}
+      STATS_URL: http://stats:4900
+      FULLTEXT_URL: http://fulltext:4702
+      FILES_URL: ${PUBLIC_URL:-http://localhost:8087}/files/:workspace/:blobId/:filename
+      ENABLE_COMPRESSION: "true"
+      METRICS_CONSOLE: "false"
+      METRICS_FILE: metrics.txt
+      LAST_NAME_FIRST: "true"
+      BRANDING_PATH: /var/cfg/branding.json
+      AI_BOT_URL: ""
+      COMMUNICATION_API_ENABLED: "true"
+      RATE_LIMIT_MAX: 250
+      RATE_LIMIT_WINDOW: 30000
+      HYLYLAKE_URL: http://hulylake:8096
+    volumes:
+      - ./dev/branding.json:/var/cfg/branding.json:ro
+    ports:
+      - "${TRANSACTOR_PORT:-3332}:3332"
+
+  workspace:
+    build:
+      <<: *build-node
+      target: workspace
+    <<: *restart
+    depends_on:
+      cockroach:
+        condition: service_healthy
+      redpanda:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      account:
+        condition: service_started
+      stats:
+        condition: service_started
+    environment:
+      <<: *common-env
+      WS_OPERATION: all+backup
+      REGION: cockroach
+      DB_URL: postgresql://root@cockroach:26257/defaultdb?sslmode=disable
+      ACCOUNTS_DB_URL: postgresql://root@cockroach:26257/defaultdb?sslmode=disable
+      QUEUE_CONFIG: redpanda:9092
+      STORAGE_CONFIG: datalake|http://datalake:4030
+      ACCOUNTS_URL: http://account:3000
+      STATS_URL: http://stats:4900
+      BRANDING_PATH: /var/cfg/branding.json
+      BACKUP_STORAGE: minio|minio?accessKey=${MINIO_ACCESS_KEY:-minioadmin}&secretKey=${MINIO_SECRET_KEY:-minioadmin}
+      BACKUP_BUCKET: ${BACKUP_BUCKET_NAME:-huly-backups}
+      MAIL_URL: ${MAIL_URL:-}
+    volumes:
+      - ./dev/branding.json:/var/cfg/branding.json:ro
+
+  collaborator:
+    build:
+      <<: *build-node
+      target: collaborator
+    <<: *restart
+    depends_on:
+      minio:
+        condition: service_healthy
+      account:
+        condition: service_started
+      stats:
+        condition: service_started
+    environment:
+      <<: *common-env
+      COLLABORATOR_PORT: 3078
+      SECRET: ${SERVER_SECRET:-changeme-use-a-long-random-string}
+      ACCOUNTS_URL: http://account:3000
+      STORAGE_CONFIG: datalake|http://datalake:4030
+      STATS_URL: http://stats:4900
+    ports:
+      - "${COLLABORATOR_PORT:-3078}:3078"
+
+  front:
+    build:
+      <<: *build-node
+      target: front
+    <<: *restart
+    depends_on:
+      account:
+        condition: service_started
+      stats:
+        condition: service_started
+    environment:
+      <<: *common-env
+      SERVER_PORT: 8080
+      ACCOUNTS_URL: http://account:3000
+      STATS_URL: http://stats:4900
+      # Client-facing URLs — must be reachable from the browser
+      UPLOAD_URL: /files
+      FILES_URL: ${DATALAKE_URL:-${PUBLIC_URL:-http://localhost:8087}}/blob/:workspace/:blobId/:filename
+      DATALAKE_URL: ${DATALAKE_URL:-${PUBLIC_URL:-http://localhost:8087}}
+      PREVIEW_URL: ${PREVIEW_URL:-http://localhost:4040}
+      COLLABORATOR_URL: ${COLLABORATOR_WS_URL:-ws://localhost:3078}
+      REKONI_URL: http://rekoni:4004
+      LINK_PREVIEW_URL: ${LINK_PREVIEW_URL:-http://localhost:4041}
+      EXPORT_URL: http://export-svc:4009
+      BACKUP_URL: http://backup-api:4039/api/backup
+      HULYLAKE_URL: ${HULYLAKE_URL:-http://localhost:8096}
+      PULSE_URL: ${PULSE_URL:-ws://localhost:8099/ws}
+      STREAM_URL: ${STREAM_URL:-}
+      PRINT_URL: ${PRINT_URL:-}
+      SIGN_URL: ${SIGN_URL:-}
+      GITHUB_URL: ${GITHUB_URL:-}
+      GMAIL_URL: ${GMAIL_URL:-}
+      CALENDAR_URL: ${CALENDAR_URL:-}
+      TELEGRAM_URL: ${TELEGRAM_URL:-}
+      PAYMENT_URL: ${PAYMENT_URL:-}
+      DESKTOP_UPDATES_URL: https://dist.huly.io
+      DESKTOP_UPDATES_CHANNEL: dev
+      BRANDING_URL: ${PUBLIC_URL:-http://localhost:8087}/branding.json
+      COMMUNICATION_API_ENABLED: "true"
+      DISABLED_FEATURES: auto-translate,mailboxes
+    ports:
+      - "${FRONT_PORT:-8087}:8080"
+
+  # ════════════════════════════════════════════════════════════
+  # Data & search services
+  # ════════════════════════════════════════════════════════════
+
+  datalake:
+    build:
+      <<: *build-node
+      target: datalake
+    <<: *restart
+    depends_on:
+      minio:
+        condition: service_healthy
+      cockroach:
+        condition: service_healthy
+      account:
+        condition: service_started
+      stats:
+        condition: service_started
+    environment:
+      <<: *common-env
+      PORT: 4030
+      SECRET: ${SERVER_SECRET:-changeme-use-a-long-random-string}
+      REGION: cockroach
+      DB_URL: postgresql://root@cockroach:26257/defaultdb?sslmode=disable
+      QUEUE_CONFIG: redpanda:9092
+      ACCOUNTS_URL: http://account:3000
+      STATS_URL: http://stats:4900
+      # MinIO bucket config: name,region|endpoint?creds
+      BUCKETS: blobs,eu|http://minio:9000?accessKey=${MINIO_ACCESS_KEY:-minioadmin}&secretKey=${MINIO_SECRET_KEY:-minioadmin}
+    ports:
+      - "${DATALAKE_PORT:-4030}:4030"
+
+  hulylake:
+    build:
+      context: foundations/hulylake
+      dockerfile: Dockerfile
+    <<: *restart
+    depends_on:
+      minio:
+        condition: service_healthy
+      cockroach:
+        condition: service_healthy
+    environment:
+      HULY_TOKEN_SECRET: ${SERVER_SECRET:-changeme-use-a-long-random-string}
+      HULY_DB_CONNECTION: postgresql://root@cockroach:26257/defaultdb?sslmode=disable
+      AWS_ENDPOINT_URL: http://minio:9000
+      AWS_REGION: local
+      AWS_ACCESS_KEY_ID: ${MINIO_ACCESS_KEY:-minioadmin}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_SECRET_KEY:-minioadmin}
+    ports:
+      - "${HULYLAKE_PORT:-8096}:8096"
+
+  hulykvs:
+    image: hardcoreeng/hulykvs
+    <<: *restart
+    depends_on:
+      cockroach:
+        condition: service_healthy
+    environment:
+      HULY_DB_CONNECTION: postgresql://root@cockroach:26257/defaultdb?sslmode=disable
+      HULY_TOKEN_SECRET: ${SERVER_SECRET:-changeme-use-a-long-random-string}
+    ports:
+      - "${HULYKVS_PORT:-8094}:8094"
+
+  hulypulse:
+    build:
+      context: foundations/hulypulse
+      dockerfile: Dockerfile
+    <<: *restart
+    depends_on:
+      redis:
+        condition: service_started
+    environment:
+      HULY_REDIS_URLS: redis://redis:6379
+      HULY_BIND_PORT: 8099
+    ports:
+      - "${HULYPULSE_PORT:-8099}:8099"
+
+  hulygun:
+    image: hardcoreeng/hulygun
+    <<: *restart
+    depends_on:
+      redpanda:
+        condition: service_healthy
+      account:
+        condition: service_started
+    environment:
+      HULY_LOG: info
+      HULY_KAFKA_BOOTSTRAP: redpanda:9092
+      HULY_TOKEN_SECRET: ${SERVER_SECRET:-changeme-use-a-long-random-string}
+      HULY_ACCOUNT_SERVICE: http://account:3000
+
+  fulltext:
+    build:
+      <<: *build-node
+      target: fulltext
+    <<: *restart
+    depends_on:
+      elastic:
+        condition: service_healthy
+      cockroach:
+        condition: service_healthy
+      account:
+        condition: service_started
+      rekoni:
+        condition: service_started
+      stats:
+        condition: service_started
+    environment:
+      <<: *common-env
+      PORT: 4702
+      REGION: cockroach
+      DB_URL: postgresql://root@cockroach:26257/defaultdb?sslmode=disable
+      QUEUE_CONFIG: redpanda:9092
+      STORAGE_CONFIG: datalake|http://datalake:4030
+      ACCOUNTS_URL: http://account:3000
+      STATS_URL: http://stats:4900
+      FULLTEXT_DB_URL: http://elastic:9200
+      ELASTIC_INDEX_NAME: huly_index
+      REKONI_URL: http://rekoni:4004
+      HULYLAKE_URL: http://hulylake:8096
+      COMMUNICATION_API_ENABLED: "true"
+    ports:
+      - "${FULLTEXT_PORT:-4702}:4702"
+
+  # ════════════════════════════════════════════════════════════
+  # Media & preview services
+  # ════════════════════════════════════════════════════════════
+
+  rekoni:
+    build:
+      <<: *build-node
+      target: rekoni
+    <<: *restart
+    environment:
+      STATS_URL: http://stats:4900
+    ports:
+      - "${REKONI_PORT:-4004}:4004"
+
+  preview:
+    build:
+      <<: *build-node
+      target: preview
+    <<: *restart
+    environment:
+      SECRET: ${SERVER_SECRET:-changeme-use-a-long-random-string}
+      STORAGE_CONFIG: datalake|http://datalake:4030
+      CACHE_PATH: /data/cache
+    volumes:
+      - preview_cache:/data/cache
+    ports:
+      - "${PREVIEW_PORT:-4040}:4040"
+
+  link-preview:
+    build:
+      <<: *build-node
+      target: link-preview
+    <<: *restart
+    environment:
+      SECRET: ${SERVER_SECRET:-changeme-use-a-long-random-string}
+      PORT: 4041
+    ports:
+      - "${LINK_PREVIEW_PORT:-4041}:4041"
+
+  # ════════════════════════════════════════════════════════════
+  # Export / import / backup
+  # ════════════════════════════════════════════════════════════
+
+  export-svc:
+    build:
+      <<: *build-node
+      target: export-svc
+    <<: *restart
+    depends_on:
+      minio:
+        condition: service_healthy
+      account:
+        condition: service_started
+      stats:
+        condition: service_started
+    environment:
+      <<: *common-env
+      PORT: 4009
+      SECRET: ${SERVER_SECRET:-changeme-use-a-long-random-string}
+      SERVICE_ID: export-service
+      DB_URL: postgresql://root@cockroach:26257/defaultdb?sslmode=disable
+      STORAGE_CONFIG: datalake|http://datalake:4030
+      ACCOUNTS_URL: http://account:3000
+      STATS_URL: http://stats:4900
+    ports:
+      - "${EXPORT_PORT:-4009}:4009"
+
+  backup:
+    build:
+      <<: *build-node
+      target: backup
+    <<: *restart
+    depends_on:
+      minio:
+        condition: service_healthy
+      cockroach:
+        condition: service_healthy
+      account:
+        condition: service_started
+      stats:
+        condition: service_started
+    environment:
+      <<: *common-env
+      SECRET: ${SERVER_SECRET:-changeme-use-a-long-random-string}
+      REGION: cockroach
+      DB_URL: postgresql://root@cockroach:26257/defaultdb?sslmode=disable
+      ACCOUNTS_DB_URL: postgresql://root@cockroach:26257/defaultdb?sslmode=disable
+      QUEUE_CONFIG: redpanda:9092
+      ACCOUNTS_URL: http://account:3000
+      STATS_URL: http://stats:4900
+      STORAGE: minio|minio?accessKey=${MINIO_ACCESS_KEY:-minioadmin}&secretKey=${MINIO_SECRET_KEY:-minioadmin}
+      WORKSPACE_STORAGE: datalake|http://datalake:4030
+      BUCKET_NAME: ${BACKUP_BUCKET_NAME:-huly-backups}
+      INTERVAL: 3600
+
+  backup-api:
+    build:
+      <<: *build-node
+      target: backup-api
+    <<: *restart
+    depends_on:
+      minio:
+        condition: service_healthy
+      account:
+        condition: service_started
+      stats:
+        condition: service_started
+    environment:
+      <<: *common-env
+      PORT: 4039
+      SECRET: ${SERVER_SECRET:-changeme-use-a-long-random-string}
+      ACCOUNTS_URL: http://account:3000
+      STATS_URL: http://stats:4900
+      STORAGE: minio|minio?accessKey=${MINIO_ACCESS_KEY:-minioadmin}&secretKey=${MINIO_SECRET_KEY:-minioadmin}
+      BUCKET_NAME: ${BACKUP_BUCKET_NAME:-huly-backups}
+    ports:
+      - "${BACKUP_API_PORT:-4039}:4039"
+
+  # ════════════════════════════════════════════════════════════
+  # Analytics & event processing
+  # ════════════════════════════════════════════════════════════
+
+  analytics:
+    build:
+      <<: *build-node
+      target: analytics
+    <<: *restart
+    depends_on:
+      account:
+        condition: service_started
+      stats:
+        condition: service_started
+    environment:
+      <<: *common-env
+      PORT: 4017
+      SECRET: ${SERVER_SECRET:-changeme-use-a-long-random-string}
+      SERVICE_ID: analytics-collector-service
+      ACCOUNTS_URL: http://account:3000
+      STATS_URL: http://stats:4900
+      # POSTHOG_HOST: ${POSTHOG_HOST:-}
+      # POSTHOG_API_KEY: ${POSTHOG_API_KEY:-}
+    ports:
+      - "${ANALYTICS_PORT:-4017}:4017"
+
+  process-svc:
+    build:
+      <<: *build-node
+      target: process-svc
+    <<: *restart
+    depends_on:
+      redpanda:
+        condition: service_healthy
+      account:
+        condition: service_started
+    environment:
+      SECRET: ${SERVER_SECRET:-changeme-use-a-long-random-string}
+      ACCOUNTS_URL: http://account:3000
+      QUEUE_CONFIG: redpanda:9092
+      QUEUE_REGION: cockroach
+
+  time-machine:
+    build:
+      <<: *build-node
+      target: time-machine
+    <<: *restart
+    depends_on:
+      redpanda:
+        condition: service_healthy
+      cockroach:
+        condition: service_healthy
+      account:
+        condition: service_started
+    environment:
+      DB_URL: postgresql://root@cockroach:26257/defaultdb?sslmode=disable
+      QUEUE_CONFIG: redpanda:9092
+      QUEUE_REGION: cockroach
+
+  events-proc:
+    build:
+      <<: *build-node
+      target: events-proc
+    <<: *restart
+    depends_on:
+      redpanda:
+        condition: service_healthy
+      account:
+        condition: service_started
+    environment:
+      <<: *common-env
+      SERVICE_ID: events-processor
+      LOG_LEVEL: info
+      SECRET: ${SERVER_SECRET:-changeme-use-a-long-random-string}
+      ACCOUNTS_URL: http://account:3000
+      QUEUE_CONFIG: redpanda:9092
+      QUEUE_REGION: cockroach
+
+  rating:
+    build:
+      <<: *build-node
+      target: rating
+    <<: *restart
+    depends_on:
+      redpanda:
+        condition: service_healthy
+      cockroach:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      account:
+        condition: service_started
+      stats:
+        condition: service_started
+    environment:
+      <<: *common-env
+      REGION: cockroach
+      DB_URL: postgresql://root@cockroach:26257/defaultdb?sslmode=disable
+      QUEUE_CONFIG: redpanda:9092
+      STORAGE_CONFIG: datalake|http://datalake:4030
+      ACCOUNTS_URL: http://account:3000
+      STATS_URL: http://stats:4900
+      HYLYLAKE_URL: http://hulylake:8096
+      COMMUNICATION_API_ENABLED: "true"
+
+  # ════════════════════════════════════════════════════════════
+  # Optional services (uncomment to enable)
+  # ════════════════════════════════════════════════════════════
+
+  # sign:
+  #   build:
+  #     <<: *build-node
+  #     target: sign
+  #   <<: *restart
+  #   depends_on:
+  #     account:
+  #       condition: service_started
+  #   environment:
+  #     SECRET: ${SERVER_SECRET:-changeme-use-a-long-random-string}
+  #     REGION: cockroach
+  #     QUEUE_CONFIG: redpanda:9092
+  #     STORAGE_CONFIG: datalake|http://datalake:4030
+  #     ACCOUNTS_URL: http://account:3000
+  #     STATS_URL: http://stats:4900
+  #     SERVICE_ID: sign-service
+  #     CERTIFICATE_PATH: /var/cfg/certificate.p12
+  #     BRANDING_PATH: /var/cfg/branding.json
+  #   volumes:
+  #     - ./services/sign/pod-sign/debug/certificate.p12:/var/cfg/certificate.p12:ro
+  #     - ./dev/branding.json:/var/cfg/branding.json:ro
+  #   ports:
+  #     - "4006:4006"
+
+  # print:
+  #   build:
+  #     <<: *build-node
+  #     target: print
+  #   <<: *restart
+  #   depends_on:
+  #     account:
+  #       condition: service_started
+  #   environment:
+  #     SECRET: ${SERVER_SECRET:-changeme-use-a-long-random-string}
+  #     REGION: cockroach
+  #     QUEUE_CONFIG: redpanda:9092
+  #     STORAGE_CONFIG: datalake|http://datalake:4030
+  #     ACCOUNTS_URL: http://account:3000
+  #     STATS_URL: http://stats:4900
+  #     FRONT_URL: ${PUBLIC_URL:-http://localhost:8087}
+  #   ports:
+  #     - "4005:4005"
+
+  # stream:  # Video recording (Go service, separate source tree)
+  #   build:
+  #     context: foundations/stream
+  #     dockerfile: Dockerfile
+  #   <<: *restart
+  #   environment:
+  #     STREAM_ENDPOINT_URL: datalake://datalake:4030
+  #     STREAM_INSECURE: "true"
+  #     STREAM_SERVER_SECRET: ${SERVER_SECRET:-changeme-use-a-long-random-string}
+  #     STREAM_MAX_PARALLEL_SCALING_COUNT: 6
+  #     STREAM_LOG_LEVEL: info
+  #     AWS_ACCESS_KEY_ID: ${MINIO_ACCESS_KEY:-minioadmin}
+  #     AWS_SECRET_ACCESS_KEY: ${MINIO_SECRET_KEY:-minioadmin}
+  #     STREAM_REGION: cockroach
+  #     STREAM_QUEUE_CONFIG: redpanda:9092
+  #   ports:
+  #     - "1080:1080"
+
+  # jaeger:  # Distributed tracing — set OTEL_ENDPOINT in .env to enable
+  #   image: jaegertracing/all-in-one:latest
+  #   <<: *restart
+  #   environment:
+  #     COLLECTOR_OTLP_ENABLED: "true"
+  #     SPAN_STORAGE_TYPE: badger
+  #     BADGER_DIRECTORY_VALUE: /badger/data
+  #     BADGER_DIRECTORY_KEY: /badger/key
+  #   volumes:
+  #     - telemetry:/badger
+  #   ports:
+  #     - "16686:16686"  # Web UI
+  #     - "4317:4317"
+  #     - "4318:4318"
+
+volumes:
+  cockroach_data:
+  redpanda_data:
+  minio_data:
+  elastic_data:
+  preview_cache:
+  # telemetry:  # uncomment if enabling jaeger
+
+networks:
+  default:
+    name: huly
+    driver: bridge
