@@ -1,4 +1,3 @@
-# syntax=docker/dockerfile:1.7
 # ================================================================
 # Promaly Platform — Coolify / self-hosted build Dockerfile
 #
