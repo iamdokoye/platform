@@ -101,36 +101,30 @@ RUN rush package --to @hcengineering/pod-front
 # Shared runtime base layers (match dev/base-image/ definitions)
 # ──────────────────────────────────────────────────────────────
 
-# Slim base: libjemalloc + dumb-init, no native npm modules
+# Slim base: dumb-init + ca-certificates
 FROM node:${NODE_VERSION}-slim AS rt-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        libjemalloc2 dumb-init ca-certificates \
+        dumb-init ca-certificates \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
-ENV LD_PRELOAD=libjemalloc.so.2 \
-    MALLOC_CONF=dirty_decay_ms:1000,narenas:2,background_thread:true \
-    NODE_ENV=production
+ENV NODE_ENV=production
 WORKDIR /usr/src/app
 
 # Full base: also pre-installs native Node add-ons (sharp, snappy, bufferutil)
 FROM node:${NODE_VERSION} AS rt-full
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        libjemalloc2 dumb-init ca-certificates \
+        dumb-init ca-certificates \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
-ENV LD_PRELOAD=libjemalloc.so.2 \
-    MALLOC_CONF=dirty_decay_ms:1000,narenas:2,background_thread:true \
-    NODE_ENV=production
+ENV NODE_ENV=production
 WORKDIR /app
 RUN npm install --ignore-scripts=false bufferutil sharp@v0.34.3 utf-8-validate snappy --unsafe-perm
 
 # Preview base: full Node + ffmpeg, poppler, LibreOffice
 FROM node:${NODE_VERSION} AS preview-base
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        dumb-init libjemalloc2 ffmpeg poppler-utils libreoffice \
+        dumb-init ffmpeg poppler-utils libreoffice \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* /usr/share/doc/* /usr/share/man/*
-ENV LD_PRELOAD=libjemalloc.so.2 \
-    MALLOC_CONF=dirty_decay_ms:1000,narenas:2,background_thread:true \
-    NODE_ENV=production
+ENV NODE_ENV=production
 RUN npm install --ignore-scripts=false bufferutil sharp@v0.34.3 utf-8-validate snappy --unsafe-perm
 WORKDIR /app
 
