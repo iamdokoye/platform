@@ -328,7 +328,7 @@ services:
       - "${HULYLAKE_PORT:-8096}:8096"
 
   hulykvs:
-    image: hardcoreeng/hulykvs
+    image: hardcoreeng/hulykvs:s0.7.423
     restart: unless-stopped
     depends_on:
       cockroach:
@@ -354,7 +354,7 @@ services:
       - "${HULYPULSE_PORT:-8099}:8099"
 
   hulygun:
-    image: hardcoreeng/hulygun
+    image: hardcoreeng/hulygun:s0.7.423
     restart: unless-stopped
     depends_on:
       redpanda:
