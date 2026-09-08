@@ -117,15 +117,12 @@ ENV NODE_ENV=production
 WORKDIR /app
 RUN npm install --ignore-scripts=false bufferutil sharp@v0.34.3 utf-8-validate snappy --unsafe-perm
 
-# Preview base: full Node + ffmpeg, poppler, LibreOffice
-FROM node:${NODE_VERSION} AS preview-base
+# Preview base: rt-full (already has native modules) + ffmpeg, poppler, LibreOffice
+FROM rt-full AS preview-base
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        dumb-init ffmpeg poppler-utils libreoffice \
+        ffmpeg poppler-utils libreoffice \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* /usr/share/doc/* /usr/share/man/*
-ENV NODE_ENV=production
-RUN npm install --ignore-scripts=false bufferutil sharp@v0.34.3 utf-8-validate snappy --unsafe-perm
-WORKDIR /app
 
 # Rekoni base: slim Node + document-format converters + pdfjs
 FROM rt-slim AS rekoni-base
