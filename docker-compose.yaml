@@ -30,7 +30,7 @@ services:
       - "${COCKROACH_DB_PORT:-26257}:26257"
 
   redpanda:
-    image: docker.redpanda.com/redpandadata/redpanda:v24.3.6
+    image: redpandadata/redpanda:v24.3.6
     restart: unless-stopped
     command:
       - redpanda
