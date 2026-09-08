@@ -26,8 +26,6 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
-    ports:
-      - "${COCKROACH_DB_PORT:-26257}:26257"
 
   redpanda:
     image: redpandadata/redpanda:v24.3.6
@@ -63,9 +61,6 @@ services:
       MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-minioadmin}
     volumes:
       - minio_data:/data
-    ports:
-      - "${MINIO_PORT:-9000}:9000"
-      - "${MINIO_CONSOLE_PORT:-9001}:9001"
     healthcheck:
       test: ["CMD", "mc", "ready", "local"]
       interval: 5s
@@ -105,8 +100,6 @@ services:
     environment:
       SERVER_SECRET: ${SERVER_SECRET:-changeme-use-a-long-random-string}
       PORT: 4900
-    ports:
-      - "${STATS_PORT:-4900}:4900"
 
   account:
     build:
@@ -136,8 +129,6 @@ services:
       MAIL_URL: ${MAIL_URL:-}
     volumes:
       - ./dev/branding.json:/var/cfg/branding.json:ro
-    ports:
-      - "${ACCOUNT_PORT:-3000}:3000"
 
   transactor:
     build:
@@ -176,8 +167,6 @@ services:
       HYLYLAKE_URL: http://hulylake:8096
     volumes:
       - ./dev/branding.json:/var/cfg/branding.json:ro
-    ports:
-      - "${TRANSACTOR_PORT:-3332}:3332"
 
   workspace:
     build:
@@ -231,8 +220,6 @@ services:
       ACCOUNTS_URL: http://account:3000
       STORAGE_CONFIG: datalake|http://datalake:4030
       STATS_URL: http://stats:4900
-    ports:
-      - "${COLLABORATOR_PORT:-3078}:3078"
 
   front:
     build:
@@ -304,8 +291,6 @@ services:
       ACCOUNTS_URL: http://account:3000
       STATS_URL: http://stats:4900
       BUCKETS: "blobs,eu|http://minio:9000?accessKey=${MINIO_ACCESS_KEY:-minioadmin}&secretKey=${MINIO_SECRET_KEY:-minioadmin}"
-    ports:
-      - "${DATALAKE_PORT:-4030}:4030"
 
   hulylake:
     build:
@@ -324,8 +309,6 @@ services:
       AWS_REGION: local
       AWS_ACCESS_KEY_ID: ${MINIO_ACCESS_KEY:-minioadmin}
       AWS_SECRET_ACCESS_KEY: ${MINIO_SECRET_KEY:-minioadmin}
-    ports:
-      - "${HULYLAKE_PORT:-8096}:8096"
 
   hulykvs:
     image: hardcoreeng/hulykvs:s0.7.423
@@ -336,8 +319,6 @@ services:
     environment:
       HULY_DB_CONNECTION: postgresql://root@cockroach:26257/defaultdb?sslmode=disable
       HULY_TOKEN_SECRET: ${SERVER_SECRET:-changeme-use-a-long-random-string}
-    ports:
-      - "${HULYKVS_PORT:-8094}:8094"
 
   hulypulse:
     build:
@@ -350,8 +331,6 @@ services:
     environment:
       HULY_REDIS_URLS: redis://redis:6379
       HULY_BIND_PORT: 8099
-    ports:
-      - "${HULYPULSE_PORT:-8099}:8099"
 
   hulygun:
     image: hardcoreeng/hulygun:s0.7.423
@@ -397,8 +376,6 @@ services:
       REKONI_URL: http://rekoni:4004
       HULYLAKE_URL: http://hulylake:8096
       COMMUNICATION_API_ENABLED: "true"
-    ports:
-      - "${FULLTEXT_PORT:-4702}:4702"
 
   # ════════════════════════════════════════════════════════════
   # Media & preview services
@@ -411,8 +388,6 @@ services:
     restart: unless-stopped
     environment:
       STATS_URL: http://stats:4900
-    ports:
-      - "${REKONI_PORT:-4004}:4004"
 
   preview:
     build:
@@ -425,8 +400,6 @@ services:
       CACHE_PATH: /data/cache
     volumes:
       - preview_cache:/data/cache
-    ports:
-      - "${PREVIEW_PORT:-4040}:4040"
 
   link-preview:
     build:
@@ -436,8 +409,6 @@ services:
     environment:
       SECRET: ${SERVER_SECRET:-changeme-use-a-long-random-string}
       PORT: 4041
-    ports:
-      - "${LINK_PREVIEW_PORT:-4041}:4041"
 
   # ════════════════════════════════════════════════════════════
   # Export / import / backup
@@ -464,8 +435,6 @@ services:
       STORAGE_CONFIG: datalake|http://datalake:4030
       ACCOUNTS_URL: http://account:3000
       STATS_URL: http://stats:4900
-    ports:
-      - "${EXPORT_PORT:-4009}:4009"
 
   backup:
     build:
@@ -515,8 +484,6 @@ services:
       STATS_URL: http://stats:4900
       STORAGE: "minio|minio?accessKey=${MINIO_ACCESS_KEY:-minioadmin}&secretKey=${MINIO_SECRET_KEY:-minioadmin}"
       BUCKET_NAME: ${BACKUP_BUCKET_NAME:-huly-backups}
-    ports:
-      - "${BACKUP_API_PORT:-4039}:4039"
 
   # ════════════════════════════════════════════════════════════
   # Analytics & event processing
@@ -539,8 +506,6 @@ services:
       SERVICE_ID: analytics-collector-service
       ACCOUNTS_URL: http://account:3000
       STATS_URL: http://stats:4900
-    ports:
-      - "${ANALYTICS_PORT:-4017}:4017"
 
   process-svc:
     build:
