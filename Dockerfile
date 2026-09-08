@@ -60,6 +60,17 @@ COPY . .
 # Silence git safe-directory warnings inside Docker
 RUN git config --global --add safe.directory /app 2>/dev/null || true
 
+# Rush's build cache requires being inside a Git repository. The Coolify
+# build context does not include .git, so initialize a throwaway repo here
+# purely to satisfy that check (no remote, no real history needed).
+RUN if [ ! -d .git ]; then \
+        git init -q \
+        && git config user.email "build@promaly.local" \
+        && git config user.name "Docker Build" \
+        && git add -A \
+        && git commit -q -m "Initial commit for Rush build cache" --allow-empty ; \
+    fi || true
+
 # Install all workspace dependencies (Rush manages pnpm internally)
 RUN rush install
 
