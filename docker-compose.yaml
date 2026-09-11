@@ -127,8 +127,6 @@ services:
       LAST_NAME_FIRST: "true"
       BRANDING_PATH: /var/cfg/branding.json
       MAIL_URL: ${MAIL_URL:-}
-    volumes:
-      - ./dev/branding.json:/var/cfg/branding.json:ro
 
   transactor:
     build:
@@ -165,8 +163,6 @@ services:
       RATE_LIMIT_MAX: 250
       RATE_LIMIT_WINDOW: 30000
       HYLYLAKE_URL: http://hulylake:8096
-    volumes:
-      - ./dev/branding.json:/var/cfg/branding.json:ro
 
   workspace:
     build:
@@ -198,8 +194,6 @@ services:
       BACKUP_STORAGE: "minio|minio?accessKey=${MINIO_ACCESS_KEY:-minioadmin}&secretKey=${MINIO_SECRET_KEY:-minioadmin}"
       BACKUP_BUCKET: ${BACKUP_BUCKET_NAME:-huly-backups}
       MAIL_URL: ${MAIL_URL:-}
-    volumes:
-      - ./dev/branding.json:/var/cfg/branding.json:ro
 
   collaborator:
     build:

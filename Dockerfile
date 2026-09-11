@@ -166,6 +166,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 FROM rt-slim AS account
 COPY --from=builder /app/pods/account/bundle/bundle.js ./
+COPY --from=builder /app/dev/branding.json /var/cfg/branding.json
 EXPOSE 3000
 CMD ["node", "bundle.js"]
 
@@ -174,19 +175,21 @@ COPY --from=builder /app/pods/stats/bundle/bundle.js ./
 EXPOSE 4900
 CMD ["node", "bundle.js"]
 
-FROM rt-slim AS transactor
+FROM rt-full AS transactor
 COPY --from=builder /app/pods/server/bundle/bundle.js \
                     /app/pods/server/bundle/bundle.js.map \
                     /app/pods/server/bundle/model.json ./
+COPY --from=builder /app/dev/branding.json /var/cfg/branding.json
 EXPOSE 3332
 CMD ["node", "./bundle.js"]
 
 FROM rt-slim AS workspace
 COPY --from=builder /app/pods/workspace/bundle/bundle.js \
                     /app/pods/workspace/bundle/bundle.js.map ./
+COPY --from=builder /app/dev/branding.json /var/cfg/branding.json
 CMD ["node", "bundle.js"]
 
-FROM rt-slim AS collaborator
+FROM rt-full AS collaborator
 COPY --from=builder /app/pods/collaborator/bundle/bundle.js \
                     /app/pods/collaborator/bundle/bundle.js.map ./
 EXPOSE 3078
